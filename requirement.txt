@@ -1,0 +1,7 @@
+fastapi 
+uvicorn 
+ollama 
+assemblyai 
+pydantic-settings 
+python-dotenv 
+python-multipart
