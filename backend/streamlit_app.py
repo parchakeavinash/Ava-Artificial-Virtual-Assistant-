@@ -265,10 +265,15 @@ def conversation_panel():
     if st.session_state.partial_text:
         st.markdown(f"🎙️ *Listening:* {st.session_state.partial_text}")
 
+    # Live agent tool search / thinking status indicator
+    if getattr(agent, "is_busy", False):
+        st.info(f"🔎 {getattr(agent, 'current_action', 'Ava is searching & thinking...')}")
+
     # -----------------------------------------------------
     # 4. Persistent Active Voice Player
     # Stays mounted across fragment reruns so audio plays in full
     # -----------------------------------------------------
+
     if st.session_state.active_audio:
         st.audio(
             st.session_state.active_audio,

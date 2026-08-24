@@ -49,9 +49,12 @@ class AgentRunner:
 
         self.running = False
         self.thread: threading.Thread | None = None
+        self.is_busy = False
+        self.current_action = ""
 
         # One GeminiAgent per session — holds multi-turn history
         self.agent = GeminiAgent()
+
 
         # TTS converter
         self.tts = SarvamTTS()
@@ -198,34 +201,45 @@ class AgentRunner:
     def _process(self, user_text: str):
         """
         Full pipeline for one complete user utterance:
-          1. Gemini generates text response
+          1. Gemini generates text response (calls Firecrawl tools if needed)
           2. Sarvam TTS converts text → audio bytes
           3. Audio is base64-encoded and queued for the UI
         """
 
-        # Step 1: LLM
-        response_text = self.agent.respond(user_text)
+        self.is_busy = True
+        self.current_action = "Ava is searching & thinking..."
 
-        if not response_text:
-            print("[AGENT] Empty response from Gemini — skipping TTS")
-            return
+        try:
+            # Step 1: LLM + Tools
+            response_text = self.agent.respond(user_text)
 
-        # Step 2: TTS
-        audio_bytes = self.tts.speak(response_text)
+            if not response_text:
+                print("[AGENT] Empty response from Gemini — skipping TTS")
+                return
 
-        # Step 3: encode for browser <audio> tag
-        audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+            self.current_action = "Synthesizing voice response..."
 
-        print(
-            f"[AGENT] Done — "
-            f"response={len(response_text)} chars, "
-            f"audio={len(audio_bytes)} bytes"
-        )
+            # Step 2: TTS
+            audio_bytes = self.tts.speak(response_text)
 
-        self.tts_queue.put_nowait({
-            "text": response_text,
-            "audio_bytes": audio_bytes,
-            "audio_b64": audio_b64,
-        })
+            # Step 3: encode for browser <audio> tag
+            audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+
+            print(
+                f"[AGENT] Done — "
+                f"response={len(response_text)} chars, "
+                f"audio={len(audio_bytes)} bytes"
+            )
+
+            self.tts_queue.put_nowait({
+                "text": response_text,
+                "audio_bytes": audio_bytes,
+                "audio_b64": audio_b64,
+            })
+
+        finally:
+            self.is_busy = False
+            self.current_action = ""
+
 
 

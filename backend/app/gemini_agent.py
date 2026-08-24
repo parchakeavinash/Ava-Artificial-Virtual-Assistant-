@@ -2,29 +2,27 @@ from google import genai
 from google.genai import types
 
 from app.config import settings
+from app.web_search import web_search
 
 
-_SYSTEM_PROMPT = """You are Ava, a helpful and friendly voice AI assistant.
+_SYSTEM_PROMPT = """You are Ava, an intelligent, helpful voice AI assistant.
 
-Important rules:
-- Keep your answers SHORT and conversational — they will be spoken aloud.
-- Never use markdown, bullet points, numbered lists, or code blocks.
-- Never say things like "As an AI" or "I cannot".
-- Speak naturally, like a helpful human colleague.
-- If you don't know something, say so simply and offer to help another way.
+Capabilities:
+- You have access to the `web_search` tool powered by Firecrawl.
+- Use `web_search` whenever the user asks about real-time news, current events, recent developments, live facts, weather, stock prices, or specific topics that require fresh web information.
+- Synthesize search results into a clean, natural, human summary.
+
+Voice Guidelines:
+- Keep your answers CONCISE and conversational — they will be spoken aloud.
+- Never read raw URLs, markdown asterisks, bullet points, or code syntax aloud.
+- Speak naturally, warmly, and confidently.
 """
 
 
 class GeminiAgent:
     """
-    Wraps Google Gemini with multi-turn conversation history.
-
-    Each call to respond() appends the user message and assistant reply
-    to self.history so Gemini remembers what was said earlier in the
-    same session.
-
-    Phase 2: plain text only.
-    Phase 3+: add tool_config for MCP function calling.
+    Wraps Google Gemini with multi-turn conversation history and
+    automatic tool calling (MCP / Firecrawl Web Search).
     """
 
     def __init__(self):
@@ -33,9 +31,15 @@ class GeminiAgent:
             api_key=settings.GEMINI_API_KEY
         )
 
-        # Conversation history — list of Content objects.
-        # Grows with every user + assistant turn.
-        self.history: list[types.Content] = []
+        # Multi-turn chat session with tools
+        self.chat = self.client.chats.create(
+            model=settings.GEMINI_MODEL,
+            config=types.GenerateContentConfig(
+                system_instruction=_SYSTEM_PROMPT,
+                temperature=0.7,
+                tools=[web_search],
+            ),
+        )
 
     # ---------------------------------------------------------
     # PUBLIC
@@ -43,43 +47,29 @@ class GeminiAgent:
 
     def respond(self, user_text: str) -> str:
         """
-        Send user_text to Gemini, return the assistant text response.
-        Updates internal history so the next call has full context.
+        Send user_text to Gemini. Gemini can automatically invoke
+        tools (like Firecrawl web search) if needed, then return
+        the final synthesized voice answer.
         """
 
         print(f"[GEMINI] Sending to LLM: {user_text!r}")
 
-        # Append the new user turn
-        self.history.append(
-            types.Content(
-                role="user",
-                parts=[types.Part(text=user_text)],
-            )
-        )
+        response = self.chat.send_message(user_text)
 
-        response = self.client.models.generate_content(
-            model=settings.GEMINI_MODEL,
-            contents=self.history,
-            config=types.GenerateContentConfig(
-                system_instruction=_SYSTEM_PROMPT,
-                temperature=0.7,
-            ),
-        )
+        reply_text = response.text.strip() if response.text else "I could not find an answer to that."
 
-        reply_text = response.text.strip()
-
-        print(f"[GEMINI] Response: {reply_text!r}")
-
-        # Append the assistant reply to history for next turn
-        self.history.append(
-            types.Content(
-                role="model",
-                parts=[types.Part(text=reply_text)],
-            )
-        )
+        print(f"[GEMINI] Final Response: {reply_text!r}")
 
         return reply_text
 
     def clear_history(self):
-        """Reset conversation — call when starting a new session."""
-        self.history = []
+        """Reset conversation session."""
+        self.chat = self.client.chats.create(
+            model=settings.GEMINI_MODEL,
+            config=types.GenerateContentConfig(
+                system_instruction=_SYSTEM_PROMPT,
+                temperature=0.7,
+                tools=[web_search],
+            ),
+        )
+

@@ -6,8 +6,10 @@ class Settings(BaseSettings):
 
     # Gemini LLM
     GEMINI_API_KEY: str
-    GEMINI_MODEL: str = "gemini-3.6-flash"
+    GEMINI_MODEL: str = "gemini-3.5-flash-lite"
+    FIRECRAWL_API_KEY: str
 
+    
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
