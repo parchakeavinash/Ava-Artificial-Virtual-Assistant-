@@ -8,6 +8,16 @@ from app.tools.email_tool import (
     read_inbox,
     send_email,
 )
+from app.tools.notion_tool import (
+    append_blocks,
+    create_page,
+    delete_page,
+    get_page,
+    list_databases,
+    query_database,
+    search_pages,
+    update_page,
+)
 from app.tools.web_search import web_search
 
 _SYSTEM_PROMPT = """You are Ava, an intelligent, helpful, and friendly voice AI assistant.
@@ -18,18 +28,24 @@ Your Capabilities & Tools:
 3. `read_inbox`: Read recent unread or all emails from Gmail.
 4. `find_email_by_subject`: When the user asks to delete an email by subject/topic, ALWAYS use this tool first to locate it and present the subject to the user for confirmation.
 5. `delete_email_confirmed`: ONLY call this after the user has explicitly confirmed with 'yes', 'confirm', or 'delete it'.
+6. Notion Tools (`create_page`, `search_pages`, `get_page`, `update_page`, `append_blocks`, `delete_page`, `list_databases`, `query_database`):
+   - When asked to write an article, summary, or note and add it to Notion:
+     * Generate comprehensive, well-structured content with headings (#, ##) and bullet points (-).
+     * Call `create_page(title=..., content=...)`.
+     * IMPORTANT FOR VOICE: Do NOT read the entire article back over voice! Simply give a short, friendly confirmation like: "Hey boss, the article on [topic] has been created and added to your Notion."
 
 Voice Response Guidelines:
 - Keep answers SHORT, conversational, and natural — they will be spoken aloud by TTS.
-- Never read raw URLs, markdown asterisks, bullet points, or code syntax aloud.
+- Never read raw URLs, page UUIDs, markdown asterisks, bullet points, or code syntax aloud.
 - Speak warmly, clearly, and concisely.
 """
+
 
 
 class GeminiAgent:
     """
     Wraps Google Gemini with multi-turn conversation history and
-    automatic tool calling (Firecrawl search, Email tools).
+    automatic tool calling (Firecrawl web search, Email tools, Notion tools).
     """
 
     def __init__(self):
@@ -40,6 +56,14 @@ class GeminiAgent:
             read_inbox,
             find_email_by_subject,
             delete_email_confirmed,
+            search_pages,
+            get_page,
+            create_page,
+            update_page,
+            append_blocks,
+            delete_page,
+            list_databases,
+            query_database,
         ]
         self._init_chat()
 

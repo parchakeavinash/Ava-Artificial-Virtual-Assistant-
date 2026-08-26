@@ -73,6 +73,8 @@ with st.sidebar:
     st.markdown("**Tools Enabled:**")
     st.markdown("- 🔍 Firecrawl Web Search")
     st.markdown("- ✉️ Gmail (Send, Read, Delete with Confirmation)")
+    st.markdown("- 📝 Notion (Pages, Databases, Notes)")
+
 
     if st.button("🧹 Clear Chat History"):
         st.session_state.chat_history.clear()

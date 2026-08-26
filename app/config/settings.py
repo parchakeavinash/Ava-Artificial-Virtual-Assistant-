@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     # Firecrawl (Web Search)
     FIRECRAWL_API_KEY: str = ""
 
+    # Notion
+    NOTION_API_KEY: str = ""
+
+
     # Email Settings (SMTP / IMAP)
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
