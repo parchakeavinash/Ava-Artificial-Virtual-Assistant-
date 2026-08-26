@@ -3,7 +3,7 @@ from queue import Empty, Queue
 import threading
 import time
 
-from app.agent.gemini import GeminiAgent
+from app.agent.langchain_agent import LangChainResilientAgent
 from app.voice.tts import SarvamTTS
 
 _DEBOUNCE_SECONDS = 1.5
@@ -12,7 +12,7 @@ _DEBOUNCE_SECONDS = 1.5
 class AgentRunner:
     """
     Background worker thread that receives STT transcript fragments,
-    debounces them into full utterances, calls the Gemini Agent with tools,
+    debounces them into full utterances, calls the resilient LangChain Agent (Groq + Gemini fallback),
     and runs Sarvam TTS to produce spoken audio.
     """
 
@@ -25,8 +25,9 @@ class AgentRunner:
         self.is_busy = False
         self.current_action = ""
 
-        self.agent = GeminiAgent()
+        self.agent = LangChainResilientAgent()
         self.tts = SarvamTTS()
+
 
         self._buffer: list[str] = []
         self._last_fragment_time: float = 0.0

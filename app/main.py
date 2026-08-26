@@ -1,4 +1,4 @@
-from app.agent.gemini import GeminiAgent
+from app.agent.langchain_agent import LangChainResilientAgent
 from app.config.settings import settings
 from app.voice.runner import AgentRunner
 from app.voice.stt import SarvamRealtimeSTT
@@ -9,5 +9,5 @@ __all__ = [
     "SarvamRealtimeSTT",
     "SarvamTTS",
     "AgentRunner",
-    "GeminiAgent",
+    "LangChainResilientAgent",
 ]

@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     # Notion
     NOTION_API_KEY: str = ""
 
+    # Groq (Primary LLM & Whisper STT)
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "qwen/qwen3.6-27b"
+    GROQ_WHISPER_PRIMARY: str = "whisper-large-v3"
+    GROQ_WHISPER_FALLBACK: str = "whisper-large-v3-turbo"
+
+
 
     # Email Settings (SMTP / IMAP)
     SMTP_HOST: str = "smtp.gmail.com"
@@ -32,6 +39,12 @@ class Settings(BaseSettings):
     SECRET_KEY: str = ""
     ALGORITHM: str = "HS256"
     EXPIRE_MINUTES: int = 30
+
+    # Database (Supabase PostgreSQL)
+    DATABASE_URL: str
+    SUPABASE_URL: str = ""
+    SUPABASE_KEY: str = ""
+    PROJECT_ID: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

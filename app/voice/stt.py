@@ -4,6 +4,7 @@ import logging
 from queue import Empty, Queue
 import threading
 from typing import Any
+from urllib.parse import urlencode
 
 import websockets
 
@@ -11,8 +12,8 @@ from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-# Sarvam Realtime WebSocket URL
-_WS_URL = "wss://api.sarvam.ai/streaming/v1/ws"
+# Correct Sarvam Realtime WebSocket endpoint
+_WS_URL = "wss://api.sarvam.ai/speech-to-text-realtime/ws"
 
 # Vocabulary context prompt for tech/AI terms
 _REALTIME_PROMPT = (
@@ -32,10 +33,12 @@ class SarvamRealtimeSTT:
 
     def __init__(
         self,
+        language_code: str = "en-IN",
         sample_rate: int = 16000,
         stream_type: str = "balanced",
-        silence_duration_ms: str = "1000",
+        silence_duration_ms: int = 1000,
     ):
+        self.language_code = language_code
         self.sample_rate = sample_rate
         self.stream_type = stream_type
         self.silence_duration_ms = silence_duration_ms
@@ -84,19 +87,19 @@ class SarvamRealtimeSTT:
             self._loop.close()
 
     async def _websocket_client(self):
+        # api-subscription-key is the correct header name for Sarvam
         headers = {"api-subscription-key": settings.SARVAM_API_KEY}
 
+        # language_code is REQUIRED; use urlencode to safely encode prompt spaces
         params = {
-            "encoding": "linear16",
-            "sample_rate": str(self.sample_rate),
+            "language_code": self.language_code,
+            "model": "saaras:v3-realtime",
             "stream_type": self.stream_type,
-            "endpointing": "vad",
-            "silence_duration_ms": self.silence_duration_ms,
-            "prompt": _REALTIME_PROMPT,
+            "silence_duration_ms": str(self.silence_duration_ms),
         }
 
-        query_str = "&".join(f"{k}={v}" for k, v in params.items())
-        url = f"{_WS_URL}?{query_str}"
+        url = f"{_WS_URL}?{urlencode(params)}"
+        logger.info("[STT] Connecting to %s", url)
 
         while self.running:
             try:
@@ -106,6 +109,7 @@ class SarvamRealtimeSTT:
                     ping_interval=20,
                     ping_timeout=20,
                 ) as ws:
+                    logger.info("[STT] WebSocket connected successfully.")
                     send_task = asyncio.create_task(self._sender(ws))
                     recv_task = asyncio.create_task(self._receiver(ws))
 
