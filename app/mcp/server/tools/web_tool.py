@@ -35,4 +35,4 @@ def web_search(query: str, limit: int = 5) -> str:
         return "\n".join(output)
 
     except Exception as e:
-        return f"Error performing web search: {str(e)}"
+        return f"Error performing web search: {str(e)}"

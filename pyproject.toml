@@ -1,7 +1,7 @@
 [project]
 name = "ava"
 version = "0.1.0"
-description = "Add your description here"
+description = "Ava Voice Assistant"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -11,6 +11,7 @@ dependencies = [
     "fastapi>=0.141.1",
     "firecrawl-py>=4.38.0",
     "google-genai>=2.19.0",
+    "httpx>=0.28.1",
     "mcp[cli]>=2.0.0",
     "numpy>=2.5.2",
     "ollama>=0.6.2",
@@ -21,16 +22,12 @@ dependencies = [
     "streamlit>=1.62.0",
     "streamlit-webrtc>=0.77.0",
     "uvicorn>=0.52.4",
+    "websockets>=16.1.1",
 ]
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
 ]
 
-[tool.uv.workspace]
-members = [
-    "backend",
-]

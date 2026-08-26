@@ -1,5 +1,10 @@
+import subprocess
+import sys
+
+
 def main():
-    print("Hello from ava!")
+    """Launch the Ava Streamlit Voice Application."""
+    subprocess.run([sys.executable, "-m", "streamlit", "run", "streamlit_app.py"])
 
 
 if __name__ == "__main__":
