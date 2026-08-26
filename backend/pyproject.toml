@@ -7,6 +7,9 @@ requires-python = ">=3.12"
 dependencies = [
     "av>=17.1.0",
     "fastapi>=0.141.1",
+    "firecrawl-py>=4.38.0",
+    "google-genai>=2.19.0",
+    "httpx>=0.28.1",
     "numpy>=2.5.2",
     "pydantic-settings>=2.15.0",
     "python-dotenv>=1.2.3",
@@ -16,3 +19,4 @@ dependencies = [
     "uvicorn>=0.52.4",
     "websockets>=16.1.1",
 ]
+

@@ -154,7 +154,10 @@ class SarvamRealtimeSTT:
                 language_code="en-IN",
                 model="saaras:v3-realtime",
                 mode="transcribe",
-                stream_type="fast",
+                stream_type="balanced",
+                prompt="AI, RAG, retrieval augmented generation, LLM, Python, MCP, database, vector",
+                endpointing="vad",
+                silence_duration_ms="1000",
                 encoding="linear16",
                 sample_rate="16000",
             )

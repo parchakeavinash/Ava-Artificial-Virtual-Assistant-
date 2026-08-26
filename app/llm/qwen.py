@@ -1,1 +1,0 @@
-print("hi, i am qwen! a open-soure llm model, best for coding related task!")
