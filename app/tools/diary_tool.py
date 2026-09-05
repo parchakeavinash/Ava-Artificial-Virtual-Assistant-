@@ -1,9 +1,11 @@
 """
 Diary / Idea Keeper voice tool — wraps database controller into simple
-string-returning functions the LLM can call.
+string-returning functions the LLM can call, scoped to the active user.
 
 The diary is a personal brain-dump: ideas, thoughts, reflections, learnings.
 """
+
+from typing import Optional
 
 from app.database.controller import (
     create_diary_entry as _create_diary_entry,
@@ -13,6 +15,7 @@ from app.database.controller import (
 )
 from app.database.db import SessionLocal
 from app.database.schemas import DiaryCreate
+from app.tools.user_context import get_current_user
 
 
 def _fmt_entry(e) -> str:
@@ -22,14 +25,15 @@ def _fmt_entry(e) -> str:
     return f"[#{e.id}] {date}{title}: {snippet}"
 
 
-def add_diary_entry(content: str, title: str = "") -> str:
+def add_diary_entry(content: str, title: str = "", user_id: Optional[str] = None) -> str:
     """
     Save a new idea, note, thought, or personal reflection to the diary.
     Use when the user says 'note this down', 'add an idea', 'diary entry', or 'save this thought'.
     """
+    uid = user_id or get_current_user()
     db = SessionLocal()
     try:
-        entry = _create_diary_entry(DiaryCreate(title=title, content=content), db)
+        entry = _create_diary_entry(DiaryCreate(title=title, content=content, user_id=uid), db, user_id=uid)
         label = f" titled '{entry.title}'" if entry.title else ""
         return f"Got it! Your entry{label} has been saved to your diary as #{entry.id}."
     except Exception as e:
@@ -38,14 +42,15 @@ def add_diary_entry(content: str, title: str = "") -> str:
         db.close()
 
 
-def read_recent_diary(limit: int = 5) -> str:
+def read_recent_diary(limit: int = 5, user_id: Optional[str] = None) -> str:
     """
     Read the most recent diary/idea entries.
     Use when the user says 'read my diary', 'show my recent ideas', or 'what did I write recently'.
     """
+    uid = user_id or get_current_user()
     db = SessionLocal()
     try:
-        entries = _get_recent_diary(db, limit=limit)
+        entries = _get_recent_diary(db, user_id=uid, limit=limit)
         if not entries:
             return "Your diary is empty. Start adding your ideas and thoughts!"
         lines = "\n".join(_fmt_entry(e) for e in entries)
@@ -56,14 +61,15 @@ def read_recent_diary(limit: int = 5) -> str:
         db.close()
 
 
-def search_diary(query: str) -> str:
+def search_diary(query: str, user_id: Optional[str] = None) -> str:
     """
     Search diary entries by keyword across titles and content.
     Use when the user says 'find my notes about X', 'search diary for Y', or 'what did I write about Z'.
     """
+    uid = user_id or get_current_user()
     db = SessionLocal()
     try:
-        entries = _search_diary(query, db)
+        entries = _search_diary(query, db, user_id=uid)
         if not entries:
             return f"No diary entries found matching '{query}'."
         lines = "\n".join(_fmt_entry(e) for e in entries)
@@ -74,14 +80,15 @@ def search_diary(query: str) -> str:
         db.close()
 
 
-def delete_diary_entry(entry_id: int) -> str:
+def delete_diary_entry(entry_id: int, user_id: Optional[str] = None) -> str:
     """
     Permanently delete a diary entry by its numeric ID.
     ONLY call this after the user explicitly confirms deletion.
     """
+    uid = user_id or get_current_user()
     db = SessionLocal()
     try:
-        _delete_diary_entry(entry_id, db)
+        _delete_diary_entry(entry_id, db, user_id=uid)
         return f"Diary entry #{entry_id} has been permanently deleted."
     except Exception as e:
         return f"Error deleting diary entry: {e}"

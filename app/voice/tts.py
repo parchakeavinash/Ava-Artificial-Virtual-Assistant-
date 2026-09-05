@@ -86,7 +86,7 @@ class SarvamTTS:
         try:
             with httpx.Client(timeout=30.0) as client:
                 response = client.post(_SARVAM_TTS_URL, headers=headers, json=payload)
-                response.raise_for_response()
+                response.raise_for_status()
                 data = response.json()
 
             audios = data.get("audios", [])

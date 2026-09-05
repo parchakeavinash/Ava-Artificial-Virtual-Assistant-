@@ -122,9 +122,12 @@ class SarvamRealtimeSTT:
 
             except Exception as e:
                 if self.running:
-                    print(f"[STT] WebSocket error: {e}, reconnecting in 2s...")
+                    logger.warning(f"[STT] WebSocket connection error: {e}, retrying in 2s...")
                     self.event_queue.put_nowait({"type": "error", "message": str(e)})
                     await asyncio.sleep(2)
+            else:
+                if self.running:
+                    await asyncio.sleep(1)
 
     async def _sender(self, ws):
         while self.running:
@@ -143,16 +146,18 @@ class SarvamRealtimeSTT:
         while self.running:
             try:
                 msg = await ws.recv()
+                if not msg:
+                    continue
                 data = json.loads(msg)
-                event_type = data.get("type", "")
+                event_type = data.get("event") or data.get("type") or ""
 
                 if event_type == "transcript.partial":
-                    text = data.get("text", "").strip()
+                    text = (data.get("text") or data.get("transcript") or "").strip()
                     if text:
                         self.event_queue.put_nowait({"type": "partial", "text": text})
 
                 elif event_type == "transcript.final":
-                    text = data.get("text", "").strip()
+                    text = (data.get("text") or data.get("transcript") or "").strip()
                     if text:
                         self.event_queue.put_nowait({"type": "final", "text": text})
 
@@ -162,5 +167,8 @@ class SarvamRealtimeSTT:
                         "message": data.get("message", "Unknown error"),
                     })
 
-            except Exception:
+            except websockets.exceptions.ConnectionClosed:
+                break
+            except Exception as exc:
+                logger.debug(f"[STT] Receiver error: {exc}")
                 break

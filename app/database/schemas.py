@@ -13,6 +13,7 @@ class TaskCreate(BaseModel):
     """Payload to create a new task."""
     title: str = Field(..., min_length=1, max_length=500, description="Task title")
     description: str = Field(default="", max_length=2000, description="Optional details about the task")
+    user_id: Optional[str] = Field(default="default_user", description="User ID for multi-tenant isolation")
 
 
 class TaskUpdate(BaseModel):
@@ -27,6 +28,7 @@ class TaskResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    user_id: str
     title: str
     description: str
     status: str
@@ -42,6 +44,7 @@ class DiaryCreate(BaseModel):
     """Payload to create a new diary entry."""
     title: str = Field(default="", max_length=500, description="Optional title for the entry")
     content: str = Field(..., min_length=1, description="The idea, note, or reflection to save")
+    user_id: Optional[str] = Field(default="default_user", description="User ID for multi-tenant isolation")
 
 
 class DiaryUpdate(BaseModel):
@@ -55,6 +58,7 @@ class DiaryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    user_id: str
     title: str
     content: str
     created_at: datetime

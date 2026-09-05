@@ -39,6 +39,7 @@ from app.tools.task_tool import (
     list_pending_tasks,
     update_task,
 )
+from app.tools.user_context import set_current_user
 from app.tools.web_search import web_search
 
 
@@ -201,6 +202,7 @@ class LangChainResilientAgent:
         Loads short-term history, running summary, episodic context, and semantic facts.
         """
         uid = user_id or self.user_id
+        set_current_user(uid)
         try:
             print(f"[AGENT: LangChain] User ({uid}@{session_id}) said: {user_text!r}")
         except Exception:
@@ -304,6 +306,14 @@ class LangChainResilientAgent:
     def create_episode(self, session_id: str = "default", user_id: str | None = None) -> dict | None:
         """Distills active conversation into an episodic memory."""
         return self.memory.create_episode(
+            session_id=session_id,
+            extraction_llm=self.extraction_llm,
+            user_id=user_id or self.user_id,
+        )
+
+    def auto_distill_if_needed(self, session_id: str = "default", user_id: str | None = None) -> dict | None:
+        """Automatically distills conversation if eligible."""
+        return self.memory.auto_distill_if_needed(
             session_id=session_id,
             extraction_llm=self.extraction_llm,
             user_id=user_id or self.user_id,

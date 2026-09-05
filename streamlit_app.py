@@ -1,6 +1,7 @@
 import base64
 import datetime as dt
 import logging
+import threading
 import uuid
 import av
 import numpy as np
@@ -57,9 +58,15 @@ st.markdown(
 REMINDER_HOUR = 9
 REMINDER_MINUTE = 0
 
+# Module-level references for WebRTC background audio thread
+_ACTIVE_STT_CLIENT: SarvamRealtimeSTT | None = None
+_AUDIO_RESAMPLER: av.AudioResampler | None = None
+
 if "stt_client" not in st.session_state:
     st.session_state.stt_client = SarvamRealtimeSTT()
     st.session_state.stt_client.start()
+
+_ACTIVE_STT_CLIENT = st.session_state.stt_client
 
 if "whisper_stt" not in st.session_state:
     st.session_state.whisper_stt = GroqWhisperSTT()
@@ -119,15 +126,18 @@ def load_session_history(session_id: str):
 # AUDIO PROCESSOR CALLBACK FOR WEBRTC
 # =========================================================
 def audio_frame_callback(frame: av.AudioFrame) -> av.AudioFrame:
-    """Extract mono PCM16 audio and send to STT."""
+    """Resample to 16kHz mono linear16 and stream to STT without session_state context."""
+    global _ACTIVE_STT_CLIENT, _AUDIO_RESAMPLER
     try:
-        sound = frame.to_ndarray()
-        if sound.ndim > 1:
-            sound = sound.mean(axis=0)
-        sound_int16 = sound.astype(np.int16)
-        st.session_state.stt_client.push_audio(sound_int16.tobytes())
-    except Exception:
-        pass
+        if _ACTIVE_STT_CLIENT is not None and _ACTIVE_STT_CLIENT.running:
+            if _AUDIO_RESAMPLER is None:
+                _AUDIO_RESAMPLER = av.AudioResampler(format="s16", layout="mono", rate=16000)
+            resampled_frames = _AUDIO_RESAMPLER.resample(frame)
+            for rf in resampled_frames:
+                pcm_bytes = rf.to_ndarray().tobytes()
+                _ACTIVE_STT_CLIENT.push_audio(pcm_bytes)
+    except Exception as exc:
+        logging.debug(f"[WebRTC] Audio callback error: {exc}")
     return frame
 
 
@@ -139,6 +149,13 @@ with st.sidebar:
 
     # "+ New Chat" Button
     if st.button("➕ **New Chat**", use_container_width=True, type="primary"):
+        old_sid = st.session_state.current_session_id
+        # Background auto-distillation of previous session
+        threading.Thread(
+            target=lambda: st.session_state.agent_runner.agent.auto_distill_if_needed(session_id=old_sid),
+            daemon=True,
+        ).start()
+
         new_sid = f"chat_{uuid.uuid4().hex[:8]}"
         st.session_state.current_session_id = new_sid
         st.session_state.agent_runner.set_session_id(new_sid)
@@ -175,6 +192,12 @@ with st.sidebar:
         btn_label = f"{label_prefix}{preview}"
         if st.button(btn_label, key=f"session_btn_{sid}", use_container_width=True):
             if sid != st.session_state.current_session_id:
+                old_sid = st.session_state.current_session_id
+                threading.Thread(
+                    target=lambda: st.session_state.agent_runner.agent.auto_distill_if_needed(session_id=old_sid),
+                    daemon=True,
+                ).start()
+
                 st.session_state.current_session_id = sid
                 st.session_state.agent_runner.set_session_id(sid)
                 st.session_state.chat_history = load_session_history(sid)
@@ -243,22 +266,60 @@ with header_col2:
     st.caption("🚀 Model: **Groq (`openai/gpt-oss-120b`)**")
 
 # Voice Mode Accordion / Bar
-with st.expander("🎙️ **Voice Mode (WebRTC Microphone)**", expanded=True):
-    v_col1, v_col2 = st.columns([2, 3])
-    with v_col1:
-        webrtc_streamer(
-            key="ava-mic",
-            mode=WebRtcMode.SENDONLY,
-            audio_frame_callback=audio_frame_callback,
-            media_stream_constraints={"video": False, "audio": True},
-        )
-    with v_col2:
-        if st.session_state.partial_text:
-            st.markdown(f"🎙️ *Listening:* `{st.session_state.partial_text}`")
-        elif getattr(st.session_state.agent_runner, "is_busy", False):
-            st.info(f"🔎 {getattr(st.session_state.agent_runner, 'current_action', 'Ava is thinking & using tools...')}")
-        else:
-            st.caption("Click **START** to speak with Ava in real-time.")
+with st.expander("🎙️ **Voice Mode (Live Streaming Mic & Quick Voice Note)**", expanded=True):
+    v_tab1, v_tab2 = st.tabs(["🔴 Live Streaming Mic (WebRTC)", "🎙️ Quick Voice Note"])
+
+    with v_tab1:
+        v_col1, v_col2 = st.columns([2, 3])
+        with v_col1:
+            webrtc_streamer(
+                key="ava-mic",
+                mode=WebRtcMode.SENDONLY,
+                audio_frame_callback=audio_frame_callback,
+                media_stream_constraints={"video": False, "audio": True},
+            )
+        with v_col2:
+            if st.session_state.partial_text:
+                st.markdown(f"🎙️ *Listening:* `{st.session_state.partial_text}`")
+            elif getattr(st.session_state.agent_runner, "is_busy", False):
+                st.info(f"🔎 {getattr(st.session_state.agent_runner, 'current_action', 'Ava is thinking & using tools...')}")
+            else:
+                st.caption("Click **START** to speak continuously with Ava in real-time.")
+
+    with v_tab2:
+        quick_audio = st.audio_input("Record a voice message for Ava:")
+        if quick_audio is not None:
+            audio_id = f"{quick_audio.name}_{quick_audio.size}"
+            if st.session_state.get("last_quick_audio_id") != audio_id:
+                st.session_state.last_quick_audio_id = audio_id
+                with st.spinner("Transcribing your voice..."):
+                    try:
+                        raw_bytes = quick_audio.read()
+                        transcript = st.session_state.whisper_stt.client.audio.transcriptions.create(
+                            file=("audio.wav", raw_bytes),
+                            model=settings.GROQ_WHISPER_PRIMARY,
+                            temperature=0.0,
+                            response_format="json",
+                        ).text.strip()
+                    except Exception as stt_err:
+                        st.error(f"Transcription error: {stt_err}")
+                        transcript = ""
+
+                if transcript:
+                    st.session_state.chat_history.append({"user": transcript, "ava": "", "error": False})
+                    with st.spinner("Ava is responding..."):
+                        reply = st.session_state.agent_runner.agent.respond(
+                            user_text=transcript,
+                            session_id=st.session_state.current_session_id,
+                        )
+                        st.session_state.chat_history[-1]["ava"] = reply
+                        try:
+                            reply_audio = st.session_state.agent_runner.tts.speak(reply)
+                            st.session_state.active_audio = reply_audio
+                        except Exception as tts_err:
+                            logging.warning(f"TTS error: {tts_err}")
+                            st.session_state.active_audio = None
+                    st.rerun()
 
 st.markdown("---")
 
