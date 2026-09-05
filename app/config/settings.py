@@ -21,7 +21,7 @@ class Settings(BaseSettings):
 
     # Groq (Primary LLM & Whisper STT)
     GROQ_API_KEY: str = ""
-    GROQ_MODEL: str = "qwen/qwen3.6-27b"
+    GROQ_MODEL: str = "openai/gpt-oss-120b"
     GROQ_WHISPER_PRIMARY: str = "whisper-large-v3"
     GROQ_WHISPER_FALLBACK: str = "whisper-large-v3-turbo"
 
@@ -45,6 +45,15 @@ class Settings(BaseSettings):
     SUPABASE_URL: str = ""
     SUPABASE_KEY: str = ""
     PROJECT_ID: str = ""
+
+    # Agent Memory System (Short-Term, Episodic, Semantic)
+    GEMINI_EMBEDDING_MODEL: str = "models/gemini-embedding-001"
+    MEMORY_WINDOW: int = 10
+    MEMORY_USER_ID: str = "default_user"
+    EPISODIC_TOP_K: int = 3
+    EPISODIC_MIN_SIMILARITY: float = 0.50
+    SEMANTIC_TOP_K: int = 5
+    SEMANTIC_MIN_SIMILARITY: float = 0.45
 
     model_config = SettingsConfigDict(
         env_file=".env",

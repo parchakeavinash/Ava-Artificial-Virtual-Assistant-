@@ -24,8 +24,11 @@ SessionLocal = sessionmaker(
     bind=engine,
     autocommit=False,
     autoflush=False,
+    expire_on_commit=False,
 )
 
+
+from contextlib import contextmanager
 
 def get_db():
     """FastAPI dependency that provides a scoped DB session."""
@@ -36,8 +39,23 @@ def get_db():
         db.close()
 
 
+@contextmanager
+def get_db_session():
+    """Context manager for obtaining a transactional database session."""
+    session = SessionLocal()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
 def init_db():
     """Create all tables if they don't exist yet."""
-    from app.database import models  # noqa: F401 — registers models with Base
+    from app.database import models as app_models  # noqa: F401 — registers task/diary models
+    from app.memory import models as memory_models  # noqa: F401 — registers memory models
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables initialised.")

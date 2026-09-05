@@ -27,10 +27,14 @@ class AgentRunner:
 
         self.agent = LangChainResilientAgent()
         self.tts = SarvamTTS()
-
+        self.current_session_id: str = "default"
 
         self._buffer: list[str] = []
         self._last_fragment_time: float = 0.0
+
+    def set_session_id(self, session_id: str):
+        """Switch active session for memory tracking."""
+        self.current_session_id = session_id
 
     def start(self):
         """Start the background worker thread."""
@@ -60,9 +64,10 @@ class AgentRunner:
                 break
         return results
 
-    def reset_conversation(self):
+    def reset_conversation(self, session_id: str | None = None):
         """Reset conversation session."""
-        self.agent.clear_history()
+        target_session = session_id or self.current_session_id
+        self.agent.clear_history(session_id=target_session)
         self._buffer.clear()
 
     def _run(self):
@@ -86,7 +91,7 @@ class AgentRunner:
         self.current_action = "Ava is thinking & using tools..."
 
         try:
-            response_text = self.agent.respond(user_text)
+            response_text = self.agent.respond(user_text, session_id=self.current_session_id)
             if not response_text:
                 return
 

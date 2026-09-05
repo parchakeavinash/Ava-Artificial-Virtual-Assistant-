@@ -150,14 +150,20 @@ def _extract_text(content: Any) -> str:
     return str(content).strip()
 
 
+from app.memory.manager import MemoryManager
+
+
 class LangChainResilientAgent:
     """
-    Multi-provider conversational agent with automatic failover:
-    Primary: Groq (llama-3.3-70b-versatile)
+    Multi-provider conversational agent with automatic failover and 3-layer cognitive memory:
+    Primary: Groq (openai/gpt-oss-120b)
     Secondary: Google Gemini (gemini-3.5-flash-lite) via LangChain with_fallbacks.
+    Memory: Short-Term (sliding window + summary) + Episodic (Gemini vectors) + Semantic (user facts).
     """
 
-    def __init__(self):
+    def __init__(self, user_id: str | None = None):
+        self.user_id = user_id or settings.MEMORY_USER_ID
+
         self.primary_llm = ChatGroq(
             model=settings.GROQ_MODEL,
             groq_api_key=settings.GROQ_API_KEY,
@@ -170,6 +176,13 @@ class LangChainResilientAgent:
             temperature=0.7,
         )
 
+        # Grounded low-temp LLM for deterministic fact extraction & summarization
+        self.extraction_llm = ChatGroq(
+            model=settings.GROQ_MODEL,
+            groq_api_key=settings.GROQ_API_KEY,
+            temperature=0,
+        )
+
         # Bind tools to both models
         self.primary_with_tools = self.primary_llm.bind_tools(ALL_LANGCHAIN_TOOLS)
         self.backup_with_tools = self.backup_llm.bind_tools(ALL_LANGCHAIN_TOOLS)
@@ -177,19 +190,38 @@ class LangChainResilientAgent:
         # Resilient fallback chain
         self.model_chain = self.primary_with_tools.with_fallbacks([self.backup_with_tools])
 
+        # Cognitive Memory Manager
+        self.memory = MemoryManager(user_id=self.user_id)
         self.messages: list[BaseMessage] = [SystemMessage(content=_SYSTEM_PROMPT)]
 
-    def respond(self, user_text: str) -> str:
+    def respond(self, user_text: str, session_id: str = "default", user_id: str | None = None) -> str:
         """
         Send user input, execute any required tool calls in an agentic loop,
         and return the synthesized voice-friendly response.
+        Loads short-term history, running summary, episodic context, and semantic facts.
         """
+        uid = user_id or self.user_id
         try:
-            print(f"[AGENT: LangChain] User said: {user_text!r}")
+            print(f"[AGENT: LangChain] User ({uid}@{session_id}) said: {user_text!r}")
         except Exception:
             pass
 
-        self.messages.append(HumanMessage(content=user_text))
+        # 1. Retrieve multi-layered memory context
+        try:
+            injected_prompts, history = self.memory.build_memory_context(
+                user_text=user_text,
+                session_id=session_id,
+                user_id=uid,
+            )
+        except Exception as mem_err:
+            print(f"[AGENT: Memory Warning] Failed to build context: {mem_err}")
+            injected_prompts, history = [], []
+
+        # 2. Build turn prompt payload
+        turn_messages: list[BaseMessage] = [SystemMessage(content=_SYSTEM_PROMPT)]
+        turn_messages.extend(injected_prompts)
+        turn_messages.extend(history)
+        turn_messages.append(HumanMessage(content=user_text))
 
         max_tool_iterations = 5
         iteration = 0
@@ -199,25 +231,43 @@ class LangChainResilientAgent:
 
             # Step 1: Call LLM (Groq with Gemini Fallback)
             try:
-                ai_response: AIMessage = self.model_chain.invoke(self.messages)
+                ai_response: AIMessage = self.model_chain.invoke(turn_messages)
                 agent_metrics.record_groq()
             except Exception as primary_err:
                 print(f"[AGENT: Fallback Triggered] Primary Groq error: {primary_err}")
                 print(f"[AGENT: Fallback Triggered] Retrying on Google Gemini...")
-                ai_response: AIMessage = self.backup_with_tools.invoke(self.messages)
+                ai_response: AIMessage = self.backup_with_tools.invoke(turn_messages)
                 agent_metrics.record_gemini()
 
-            self.messages.append(ai_response)
+            turn_messages.append(ai_response)
 
             # Step 2: Check for tool calls
             tool_calls = getattr(ai_response, "tool_calls", [])
             if not tool_calls:
                 # Final response reached
-                final_text = _extract_text(ai_response.content) or "I completed your request."
+                raw_text = _extract_text(ai_response.content) or "I completed your request."
+                import re
+                clean_text = re.sub(r"<think>.*?</think>\s*", "", raw_text, flags=re.DOTALL).strip()
+                final_text = clean_text or raw_text
+
                 try:
                     print(f"[AGENT: LangChain] Final Voice Reply ({agent_metrics.last_provider}): {final_text!r}")
                 except Exception:
                     pass
+
+                # 3. Record turn in memory (persists to DB, auto-extracts facts, updates summary)
+                try:
+                    self.memory.record_turn(
+                        user_text=user_text,
+                        ai_text=final_text,
+                        session_id=session_id,
+                        user_id=uid,
+                        extraction_llm=self.extraction_llm,
+                    )
+                except Exception as rec_err:
+                    print(f"[AGENT: Memory Record Warning] {rec_err}")
+
+                self.messages = turn_messages
                 return final_text
 
             # Step 3: Execute tool calls
@@ -242,7 +292,7 @@ class LangChainResilientAgent:
                     tool_result = f"Error: Tool '{tool_name}' not found."
 
                 # Append tool response to messages
-                self.messages.append(
+                turn_messages.append(
                     ToolMessage(
                         content=str(tool_result),
                         tool_call_id=tool_call_id,
@@ -251,6 +301,23 @@ class LangChainResilientAgent:
 
         return "I processed your request, but hit the tool execution limit."
 
-    def clear_history(self):
+    def create_episode(self, session_id: str = "default", user_id: str | None = None) -> dict | None:
+        """Distills active conversation into an episodic memory."""
+        return self.memory.create_episode(
+            session_id=session_id,
+            extraction_llm=self.extraction_llm,
+            user_id=user_id or self.user_id,
+        )
+
+    def list_known_facts(self, user_id: str | None = None) -> list[dict]:
+        """Lists persistent facts known about the user."""
+        return self.memory.list_known_facts(user_id=user_id or self.user_id)
+
+    def list_sessions(self, user_id: str | None = None) -> list[dict]:
+        """Lists active conversation sessions."""
+        return self.memory.list_sessions(user_id=user_id or self.user_id)
+
+    def clear_history(self, session_id: str = "default", user_id: str | None = None):
         """Reset conversation session."""
+        self.memory.clear_session(session_id=session_id, user_id=user_id or self.user_id)
         self.messages = [SystemMessage(content=_SYSTEM_PROMPT)]
