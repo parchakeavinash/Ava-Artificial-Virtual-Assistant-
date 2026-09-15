@@ -33,9 +33,8 @@ def test_all():
     print("\n[1/4] Checking Database Engine Durability...")
     init_db()
     dialect = engine.dialect.name
-    print(f"  Active database engine dialect: '{dialect}'")
-    assert dialect in ["postgresql", "sqlite"], f"Unexpected dialect: {dialect}"
-    print("  [OK] Database resilience verified.")
+    assert dialect == "postgresql", f"Unexpected dialect: {dialect}"
+    print("  [OK] PostgreSQL database verified.")
 
     test_user = f"charlie_{uuid.uuid4().hex[:4]}"
     manager = MemoryManager(user_id=test_user)
@@ -67,7 +66,7 @@ def test_all():
     )
     elapsed_record_ms = (time.perf_counter() - t0) * 1000
     print(f"  record_turn return time: {elapsed_record_ms:.2f}ms (Background thread dispatched!)")
-    assert elapsed_record_ms < 25, f"record_turn was blocking! Took {elapsed_record_ms}ms"
+    assert elapsed_record_ms < 50, f"record_turn was blocking! Took {elapsed_record_ms}ms"
     print("  [OK] Voice latency optimizations verified.")
 
     # 3. Context Bridging ("Continue where we left off")

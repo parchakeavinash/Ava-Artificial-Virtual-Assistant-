@@ -25,11 +25,14 @@ MATH_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
-# Patterns for Context Bridging ("Continue where we left off")
+# Patterns for Context Bridging ("Continue where we left off" / "What was I discussing")
 RESUME_PATTERNS = re.compile(
-    r"\b(continue\s+(where\s+we\s+left\s+off|our\s+work)|what\s+(was\s+i|were\s+we)\s+(doing|working\s+on)|"
+    r"\b(continue\s+(where\s+we\s+left\s+off|our\s+work)|"
+    r"what\s+(was\s+i|were\s+we|i\s+was|we\s+were)\s+(doing|working\s+on|discussing|talking\s+about)|"
     r"what(\'s|\s+is)\s+next(\s+on\s+my\s+plate)?|pick\s+up\s+where\s+we\s+left|catch\s+me\s+up|"
-    r"what\s+did\s+we\s+do\s+last|where\s+did\s+we\s+leave\s+off|where\s+were\s+we)\b",
+    r"what\s+did\s+we\s+do\s+last|where\s+did\s+we\s+leave\s+off|where\s+were\s+we|"
+    r"what\s+was\s+(our\s+last|the\s+last)\s+(discussion|conversation|topic|session)|"
+    r"tell\s+me\s+what\s+we\s+were\s+(talking|discussing))\b",
     re.IGNORECASE,
 )
 
@@ -87,42 +90,90 @@ class MemoryManager:
         """Checks if the user is saying goodbye or closing the conversation."""
         return bool(CLOSURE_PATTERNS.search(text.strip()))
 
-    def build_context_bridge(self, user_id: Optional[str] = None) -> Optional[SystemMessage]:
+    def build_context_bridge(
+        self,
+        current_session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> Optional[SystemMessage]:
         """
-        Synthesizes active pending tasks + most recent episodic memory into a
-        prioritized continuity prompt when the user asks 'continue where we left off'.
+        Synthesizes active pending tasks + most recent episodic memory + prior session dialogue into a
+        prioritized continuity prompt when the user asks 'continue where we left off' or 'what i was discussing'.
+        Prioritizes the actual previous conversation topics over to-do tasks.
         """
         uid = user_id or self.user_id
         items = []
 
-        # 1. Fetch pending tasks for this user
+        # 1. Retrieve dialogue and topics from the most recent prior substantive session (What was actually discussed)
         try:
-            with get_db_session() as db:
-                pending_tasks = get_pending_tasks(db, user_id=uid, limit=3)
-                if pending_tasks:
-                    task_lines = "\n".join(f"  • [Task #{t.id}] {t.title}" for t in pending_tasks)
-                    items.append(f"Active Pending Tasks for User:\n{task_lines}")
-        except Exception as e:
-            logger.warning(f"Context bridge task retrieval warning: {e}")
+            sessions = self.short_term.list_sessions(user_id=uid)
+            prev_sid = None
+            prev_msgs = []
 
-        # 2. Fetch the most recent episodic memory
+            for s in sessions:
+                sid = s["session_id"]
+                if current_session_id is not None and sid == current_session_id:
+                    continue
+                if s.get("message_count", 0) == 0:
+                    continue
+
+                # Inspect messages to see if this was a real topic or just a meta-query
+                candidate_msgs = self.short_term.get_raw_messages(session_id=sid, user_id=uid, limit=8)
+                user_msgs = [m.content.strip() for m in candidate_msgs if m.role == "user"]
+                is_only_meta = all(self.is_resume_intent(u) or self.is_trivial_utterance(u) for u in user_msgs) if user_msgs else True
+
+                if not is_only_meta and candidate_msgs:
+                    prev_sid = sid
+                    prev_msgs = candidate_msgs
+                    break
+
+            # Fallback if all prior sessions were meta
+            if not prev_msgs:
+                for s in sessions:
+                    sid = s["session_id"]
+                    if (current_session_id is None or sid != current_session_id) and s.get("message_count", 0) > 0:
+                        prev_sid = sid
+                        prev_msgs = self.short_term.get_raw_messages(session_id=sid, user_id=uid, limit=8)
+                        break
+
+            if prev_sid and prev_msgs:
+                prev_dialogue = []
+                for m in prev_msgs:
+                    role_name = "User" if m.role == "user" else "Ava"
+                    prev_dialogue.append(f"  • {role_name}: {m.content[:200]}")
+                items.append(f"Most Recent Substantive Discussion (Session {prev_sid}):\n" + "\n".join(prev_dialogue))
+        except Exception as e:
+            logger.warning(f"Context bridge prior session retrieval warning: {e}")
+
+        # 2. Fetch the most recent episodic memory (Past major work sessions)
         try:
             recent_episodes = self.episodic.list_episodes(user_id=uid, limit=1)
             if recent_episodes:
                 ep = recent_episodes[0]
                 date_str = ep.timestamp.strftime("%b %d, %Y") if ep.timestamp else "recently"
                 events = ", ".join(ep.events[:3]) if ep.events else ep.summary
-                items.append(f"Last Major Work Session ({date_str}):\n  • Summary: {ep.summary}\n  • Key Events: {events}")
+                items.append(f"Past Major Work Session ({date_str}):\n  • Summary: {ep.summary}\n  • Key Events: {events}")
         except Exception as e:
             logger.warning(f"Context bridge episode retrieval warning: {e}")
+
+        # 3. Fetch pending tasks for this user (To-dos)
+        try:
+            with get_db_session() as db:
+                pending_tasks = get_pending_tasks(db, user_id=uid, limit=3)
+                if pending_tasks:
+                    task_lines = "\n".join(f"  • [Task #{t.id}] {t.title}" for t in pending_tasks)
+                    items.append(f"User's Pending To-Dos (Tasks list):\n{task_lines}")
+        except Exception as e:
+            logger.warning(f"Context bridge task retrieval warning: {e}")
 
         if not items:
             return None
 
         content = (
-            "CONTINUITY CONTEXT (User asked to continue where they left off):\n"
+            "CONTINUITY CONTEXT ACROSS SESSIONS:\n\n"
             + "\n\n".join(items)
-            + "\n\nProactively synthesize this context to guide the user back into their work naturally and conversationally!"
+            + "\n\nCRITICAL INSTRUCTIONS FOR ANSWERING:"
+            + "\n- If the user asks specifically about previous discussions (e.g. 'what was I discussing', 'what were we talking about'), summarize the 'Most Recent Substantive Discussion' or 'Past Major Work Session' above."
+            + "\n- If the user asks to resume work (e.g. 'continue where we left off', 'what's next on my plate'), proactively synthesize both the previous discussion and any pending to-dos to guide them back into their work!"
         )
         return SystemMessage(content=content)
 
@@ -142,9 +193,9 @@ class MemoryManager:
         uid = user_id or self.user_id
         injected_prompts: List[SystemMessage] = []
 
-        # Check for Context Bridging ("Continue where we left off")
+        # Check for Context Bridging ("Continue where we left off" / "what i was discussing")
         if self.is_resume_intent(user_text):
-            bridge_prompt = self.build_context_bridge(user_id=uid)
+            bridge_prompt = self.build_context_bridge(current_session_id=session_id, user_id=uid)
             if bridge_prompt:
                 injected_prompts.append(bridge_prompt)
 
@@ -293,7 +344,7 @@ class MemoryManager:
         session_id: str,
         extraction_llm: Any,
         user_id: Optional[str] = None,
-        min_messages: int = 4,
+        min_messages: int = 2,
     ) -> Optional[Dict[str, Any]]:
         """
         Called when a session closes or switches.

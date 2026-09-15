@@ -162,9 +162,13 @@ class SarvamRealtimeSTT:
                         self.event_queue.put_nowait({"type": "final", "text": text})
 
                 elif event_type == "error":
+                    err_msg = data.get("message", "Unknown error")
+                    if "no audio received" in err_msg.lower():
+                        logger.info("[STT] Idle timeout from server (%s). Silent reconnect.", err_msg)
+                        break
                     self.event_queue.put_nowait({
                         "type": "error",
-                        "message": data.get("message", "Unknown error"),
+                        "message": err_msg,
                     })
 
             except websockets.exceptions.ConnectionClosed:

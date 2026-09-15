@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 import time
 from typing import Any
@@ -81,11 +82,21 @@ ALL_LANGCHAIN_TOOLS = [
 
 TOOL_MAP = {t.name: t for t in ALL_LANGCHAIN_TOOLS}
 
-_SYSTEM_PROMPT = """You are Ava, an intelligent, helpful, and friendly voice AI assistant.
+def build_system_prompt() -> str:
+    now = dt.datetime.now()
+    date_str = now.strftime("%A, %B %d, %Y")
+    current_year = now.year
+    return f"""You are Ava, an intelligent, helpful, and friendly voice AI assistant.
+
+Current Date & Time: Today is {date_str}. The current year is {current_year}.
 
 Your Capabilities & Tools:
 1. `calculate`: Use for any math — salary hikes, percentages, arithmetic, compound interest.
 2. `web_search`: Use for real-time news, weather, stock updates, or live facts.
+   - MANDATORY: When the user asks about recent releases, newly launched models, current news, or 'what launched recently', ALWAYS call `web_search` first before answering.
+   - For recent/latest news, search using concise, relevant keywords (e.g., 'latest AI news', 'OpenAI news', 'ChatGPT updates').
+   - NEVER restrict search queries to past years like 2023 or 2024 unless the user explicitly asks for historical news from that specific year.
+   - When the user asks for 'latest', provide the newest developments from {current_year}.
 3. `send_email` / `read_inbox` / `find_email_by_subject` / `delete_email_confirmed`: Full Gmail management.
    - ALWAYS call `find_email_by_subject` first when user asks to delete an email; only call `delete_email_confirmed` after explicit confirmation.
 4. Notion Tools (`create_page`, `search_pages`, `get_page`, `update_page`, `append_blocks`, `delete_page`, `list_databases`, `query_database`):
@@ -193,7 +204,7 @@ class LangChainResilientAgent:
 
         # Cognitive Memory Manager
         self.memory = MemoryManager(user_id=self.user_id)
-        self.messages: list[BaseMessage] = [SystemMessage(content=_SYSTEM_PROMPT)]
+        self.messages: list[BaseMessage] = [SystemMessage(content=build_system_prompt())]
 
     def respond(self, user_text: str, session_id: str = "default", user_id: str | None = None) -> str:
         """
@@ -220,7 +231,7 @@ class LangChainResilientAgent:
             injected_prompts, history = [], []
 
         # 2. Build turn prompt payload
-        turn_messages: list[BaseMessage] = [SystemMessage(content=_SYSTEM_PROMPT)]
+        turn_messages: list[BaseMessage] = [SystemMessage(content=build_system_prompt())]
         turn_messages.extend(injected_prompts)
         turn_messages.extend(history)
         turn_messages.append(HumanMessage(content=user_text))
@@ -330,4 +341,4 @@ class LangChainResilientAgent:
     def clear_history(self, session_id: str = "default", user_id: str | None = None):
         """Reset conversation session."""
         self.memory.clear_session(session_id=session_id, user_id=user_id or self.user_id)
-        self.messages = [SystemMessage(content=_SYSTEM_PROMPT)]
+        self.messages = [SystemMessage(content=build_system_prompt())]

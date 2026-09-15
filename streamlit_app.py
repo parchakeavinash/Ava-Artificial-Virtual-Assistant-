@@ -150,9 +150,10 @@ with st.sidebar:
     # "+ New Chat" Button
     if st.button("➕ **New Chat**", use_container_width=True, type="primary"):
         old_sid = st.session_state.current_session_id
+        agent_ref = st.session_state.agent_runner.agent
         # Background auto-distillation of previous session
         threading.Thread(
-            target=lambda: st.session_state.agent_runner.agent.auto_distill_if_needed(session_id=old_sid),
+            target=lambda: agent_ref.auto_distill_if_needed(session_id=old_sid),
             daemon=True,
         ).start()
 
@@ -193,8 +194,9 @@ with st.sidebar:
         if st.button(btn_label, key=f"session_btn_{sid}", use_container_width=True):
             if sid != st.session_state.current_session_id:
                 old_sid = st.session_state.current_session_id
+                agent_ref = st.session_state.agent_runner.agent
                 threading.Thread(
-                    target=lambda: st.session_state.agent_runner.agent.auto_distill_if_needed(session_id=old_sid),
+                    target=lambda: agent_ref.auto_distill_if_needed(session_id=old_sid),
                     daemon=True,
                 ).start()
 
@@ -353,7 +355,9 @@ def live_chat_stream():
                 agent.push_transcript(text)
             st.session_state.partial_text = ""
         elif event_type == "error":
-            st.error(f"STT Error: {event.get('message', 'Unknown error')}")
+            err_msg = event.get('message', 'Unknown error')
+            if "no audio received" not in err_msg.lower():
+                st.error(f"STT Error: {err_msg}")
 
     # 3. Drain completed voice results from AgentRunner
     new_results = agent.get_results()
